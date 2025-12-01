@@ -23,47 +23,71 @@ export class BookingsService {
     });
   }
 
-  async createBooking(userId: string, createBookingDto: CreateBookingDto): Promise<Booking> {
-    const { seatId, passenger_name, passenger_email } = createBookingDto;
+  async createBooking(userId: string, createBookingDto: CreateBookingDto): Promise<Booking[]> {
+    const { seatIds, passenger_name, passenger_email } = createBookingDto;
 
-    // Find seat with user relation
-    const seat = await this.seatsRepository.findOne({
-      where: { id: seatId },
+    if (!seatIds || seatIds.length === 0) {
+      throw new BadRequestException('At least one seat must be selected');
+    }
+
+    // Find all seats with user relation
+    const seats = await this.seatsRepository.find({
+      where: seatIds.map(id => ({ id })),
       relations: ['user', 'schedule', 'schedule.route'],
     });
 
-    if (!seat) {
-      throw new BadRequestException('Seat not found');
+    if (seats.length !== seatIds.length) {
+      throw new BadRequestException('One or more seats not found');
     }
 
-    // Verify seat is LOCKED
-    if (seat.status !== SeatStatus.LOCKED) {
-      throw new BadRequestException('Seat is not locked. Please lock the seat before purchasing.');
+    // Verify all seats are LOCKED
+    const unlockedSeats = seats.filter(seat => seat.status !== SeatStatus.LOCKED);
+    if (unlockedSeats.length > 0) {
+      throw new BadRequestException(`Seats ${unlockedSeats.map(s => s.seat_number).join(', ')} are not locked`);
     }
 
-    // Verify seat is locked by the requesting user
-    if (!seat.user || seat.user.id !== userId) {
-      throw new ForbiddenException('This seat is locked by another user.');
+    // Verify all seats are locked by the requesting user
+    const otherUserSeats = seats.filter(seat => !seat.user || seat.user.id !== userId);
+    if (otherUserSeats.length > 0) {
+      throw new ForbiddenException('Some seats are locked by another user');
     }
 
-    // Create booking
-    const booking = this.bookingsRepository.create({
-      user: { id: userId } as User,
-      seat: seat,
-      passenger_name,
-      passenger_email,
+    // Check if user is verified
+    const user = await this.seatsRepository.manager.findOne(User, { 
+      where: { id: userId } 
     });
-    await this.bookingsRepository.save(booking);
 
-    // Update seat status to SOLD
-    seat.status = SeatStatus.SOLD;
-    await this.seatsRepository.save(seat);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
 
-    // Clear Redis lock
-    const lockKey = `seat_lock:${seatId}`;
-    await this.redis.del(lockKey);
+    if (!user.isVerified) {
+      throw new BadRequestException('Please verify your identity before purchasing tickets');
+    }
 
-    return booking;
+    // Create bookings for all seats
+    const bookings: Booking[] = [];
+    
+    for (const seat of seats) {
+      const booking = this.bookingsRepository.create({
+        user: { id: userId } as User,
+        seat: seat,
+        passenger_name,
+        passenger_email,
+      });
+      const savedBooking = await this.bookingsRepository.save(booking);
+      bookings.push(savedBooking);
+
+      // Update seat status to SOLD
+      seat.status = SeatStatus.SOLD;
+      await this.seatsRepository.save(seat);
+
+      // Clear Redis lock
+      const lockKey = `seat_lock:${seat.id}`;
+      await this.redis.del(lockKey);
+    }
+
+    return bookings;
   }
 
   async findUserBookings(userId: string): Promise<Booking[]> {

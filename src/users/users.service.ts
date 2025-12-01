@@ -23,4 +23,16 @@ export class UsersService {
   async findById(id: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { id } });
   }
+
+  async updateVerificationStatus(userId: string, idDocumentPath: string): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    user.isVerified = true;
+    user.idDocumentPath = idDocumentPath;
+    
+    return this.usersRepository.save(user);
+  }
 }

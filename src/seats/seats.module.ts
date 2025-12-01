@@ -4,11 +4,12 @@ import { SeatsService } from './seats.service';
 import { SeatsController } from './seats.controller';
 import { Seat } from './entities/seat.entity';
 import { Route } from '../routes/entities/route.entity';
+import { SeatUnlockService } from './seat-unlock.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Seat, Route])],
   controllers: [SeatsController],
-  providers: [SeatsService],
+  providers: [SeatsService, SeatUnlockService],
   exports: [SeatsService],
 })
 export class SeatsModule {}

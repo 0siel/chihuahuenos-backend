@@ -78,4 +78,17 @@ export class SeatsService {
           await this.seatsRepository.save(seat);
       }
   }
+
+  async createSeatsForSchedule(schedule: any, count: number = 30): Promise<void> {
+    const seats: Seat[] = [];
+    for (let i = 1; i <= count; i++) {
+      const seat = this.seatsRepository.create({
+        seat_number: i,
+        status: SeatStatus.AVAILABLE,
+        schedule: schedule,
+      });
+      seats.push(seat);
+    }
+    await this.seatsRepository.save(seats);
+  }
 }
